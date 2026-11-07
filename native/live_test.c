@@ -19,10 +19,10 @@ int main(int argc,char **argv) {
         ULONGLONG now=GetTickCount64();LONG64 bytes=host.shared->payload_bytes;
         double measured=now>last_time?(double)(bytes-last_bytes)*8.0/(double)(now-last_time):0;
         last_bytes=bytes;last_time=now;
-        printf("{\"second\":%d,\"channels\":%ld,\"bps\":%ld,\"holding\":%ld,\"error\":%ld,\"applied\":%ld,\"frames\":%lld,\"encode_errors\":%lld,\"upstream_bps\":%ld,\"capacity\":%ld,\"samples\":%ld,\"kbps\":%.3f}\n",
+        printf("{\"second\":%d,\"channels\":%ld,\"bps\":%ld,\"holding\":%ld,\"error\":%ld,\"applied\":%ld,\"frames\":%lld,\"encode_errors\":%lld,\"upstream_bps\":%ld,\"capacity\":%ld,\"samples\":%ld,\"celt_bps\":%ld,\"kbps\":%.3f}\n",
                i+1,host.shared->channels,host.shared->bitrate,host.shared->holding,host.shared->error,
                host.shared->applied,(long long)host.shared->frames,(long long)host.shared->encoding_errors,
-               host.shared->upstream_bitrate,host.shared->output_capacity,host.shared->packet_samples,measured);fflush(stdout);
+               host.shared->upstream_bitrate,host.shared->output_capacity,host.shared->packet_samples,host.shared->celt_bitrate,measured);fflush(stdout);
         int expected=kbps*1000;if(expected>300000*host.shared->channels)expected=300000*host.shared->channels;
         if(kbps && i>1 && (host.shared->applied!=sequence||host.shared->bitrate!=expected||host.shared->encoding_errors||
            host.shared->upstream_bitrate!=kbps*1000 || host.shared->error ||

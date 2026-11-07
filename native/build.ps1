@@ -27,5 +27,7 @@ try {
     if ($LASTEXITCODE) { throw 'Feature probe compilation failed.' }
     & $clang @flags -municode component_test.c chart.c locator.c -ladvapi32 -lshell32 -lole32 -luuid -o build/component-test.exe
     if ($LASTEXITCODE) { throw 'Component probe compilation failed.' }
+    & $clang @flags -municode -D_WIN32_WINNT=0x0601 celt_test.c features.c @hook -o build/celt-test.exe
+    if ($LASTEXITCODE) { throw 'Isolated CELT test compilation failed.' }
     Get-Item build/KOOK-Voice-Enhancer.exe | Select-Object Name,Length
 } finally { Pop-Location }

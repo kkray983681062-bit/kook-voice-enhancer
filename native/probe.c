@@ -22,6 +22,7 @@ int wmain(int argc,wchar_t **argv) {
            ok?"true":"false",f.control_rva,f.encode_rva,f.start_rva,f.channels_offset,f.control_matches,f.encode_matches);
     printf("{\"upstream_encode\":%lu,\"upstream_rate\":%lu,\"encoder_offset\":%lu,\"bitrate_offset\":%lu}\n",
            f.upstream_encode_rva,f.upstream_rate_rva,f.upstream_encoder_offset,f.upstream_bitrate_offset);
+    printf("{\"celt_control\":%lu,\"celt_channels_offset\":%lu,\"celt_bitrate_offset\":%lu}\n",f.celt_control_rva,f.celt_channels_offset,f.celt_bitrate_offset);
     if(ok && argc>2) {
         const IMAGE_NT_HEADERS64 *loaded=(const void *)(image+dos->e_lfanew);
         IMAGE_DATA_DIRECTORY dd=loaded->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
@@ -48,6 +49,18 @@ int wmain(int argc,wchar_t **argv) {
                 int rejected=!k_find_features(image,size,&negative_upstream);memcpy(image+i,&v,4);
                 printf("{\"upstream_semantic_mismatch_rejected\":%s}\n",rejected?"true":"false");
                 if(!rejected)ok=0;break;
+            }
+        }
+        RUNTIME_FUNCTION celt_range={0};
+        for(size_t i=0;i<count;++i)if(ranges[i].BeginAddress==f.celt_control_rva)celt_range=ranges[i];
+        ranges[replace]=celt_range;KFeatures celt_duplicate;
+        int celt_unique=!k_find_features(image,size,&celt_duplicate);ranges[replace]=saved;
+        printf("{\"celt_ambiguity_rejected\":%s}\n",celt_unique?"true":"false");if(!celt_unique)ok=0;
+        for(size_t i=celt_range.BeginAddress;i+4<=celt_range.EndAddress;++i) {
+            uint32_t v;memcpy(&v,image+i,4);if(v==260000) {
+                uint32_t changed=259999;memcpy(image+i,&changed,4);KFeatures celt_negative;
+                int rejected=!k_find_features(image,size,&celt_negative);memcpy(image+i,&v,4);
+                printf("{\"celt_semantic_mismatch_rejected\":%s}\n",rejected?"true":"false");if(!rejected)ok=0;break;
             }
         }
         /* A semantic mismatch must be rejected; no fixed-address fallback. */

@@ -117,6 +117,41 @@ static int find_upstream(const unsigned char *p,size_t n,const RUNTIME_FUNCTION 
     }
     return matches==1;
 }
+static int find_celt(const unsigned char *p,size_t n,const RUNTIME_FUNCTION *ranges,size_t count,KFeatures *out) {
+    DWORD ctl_end=0;unsigned matches=0;
+    for(size_t f=0;f<count;++f)if(ranges[f].BeginAddress==out->control_rva)ctl_end=ranges[f].EndAddress;
+    if(!ctl_end)return 0;
+    for(size_t f=0;f<count;++f) {
+        DWORD a=ranges[f].BeginAddress,z=ranges[f].EndAddress;
+        if(z<=a || z-a<200 || z-a>10000 || !span(n,a,z-a) || !has32(p+a,z-a,260000) ||
+           !has32(p+a,z-a,500) || !has_call(p,out->control_rva,ctl_end,a))continue;
+        unsigned clamps=0,channels=0,bitrate=0;
+        for(DWORD at=a;at<z;) {
+            hde64s h;unsigned step=decode(p+at,z-at,&h);
+            if(!step || h.flags&F_ERROR || step>z-at)break;
+            int d=displacement(&h);
+            if(h.opcode==0x69 && !h.rex_w && h.imm.imm32==260000 && d>0 && d<2048 && !(d%4)) {
+                unsigned reg=h.modrm_reg+(h.rex_r?8:0),base=h.modrm_rm+(h.rex_b?8:0);
+                int compare=0,conditional=0;
+                for(DWORD next=at+step;next<z && next<at+32;) {
+                    hde64s t;unsigned len=decode(p+next,z-next,&t);int offset=displacement(&t);
+                    if(!len || t.flags&F_ERROR || len>z-next)break;
+                    if(t.opcode==0x39 || t.opcode==0x3b)compare=1;
+                    if(t.opcode==0x0f && t.opcode2>=0x40 && t.opcode2<=0x4f)conditional=1;
+                    if(t.opcode==0x89 && !t.rex_w && t.modrm_reg+(t.rex_r?8u:0u)==reg &&
+                       t.modrm_rm+(t.rex_b?8u:0u)==base && offset>0 && offset<2048 && !(offset%4) && offset!=d) {
+                        if(compare&&conditional){clamps++;channels=(unsigned)d;bitrate=(unsigned)offset;}
+                        break;
+                    }
+                    next+=len;
+                }
+            }
+            at+=step;
+        }
+        if(clamps==1){matches++;out->celt_control_rva=a;out->celt_channels_offset=channels;out->celt_bitrate_offset=bitrate;}
+    }
+    return matches==1;
+}
 int k_find_features(const unsigned char *p,size_t n,KFeatures *out) {
     memset(out,0,sizeof(*out));
     const IMAGE_NT_HEADERS64 *nt=headers(p,n);if(!nt)return 0;
@@ -150,7 +185,7 @@ int k_find_features(const unsigned char *p,size_t n,KFeatures *out) {
         if(enc&&pcm16) {out->encode_matches++;out->encode_rva=start;}
     }
     return out->control_matches==1 && out->encode_matches==1 && out->control_rva!=out->encode_rva &&
-           find_upstream(p,n,ranges,count,out);
+           find_upstream(p,n,ranges,count,out) && find_celt(p,n,ranges,count,out);
 }
 
 int k_entry_matches_file(HMODULE module,DWORD rva) {

@@ -134,7 +134,7 @@ int kh_connect(KHost *host) {
     host->mapping=CreateFileMappingW(INVALID_HANDLE_VALUE,NULL,PAGE_READWRITE,0,sizeof(KShared),NULL);
     host->shared=host->mapping?MapViewOfFile(host->mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(KShared)):NULL;
     if(!host->shared){host->error=GetLastError();kh_close(host);return 0;}
-    memset(host->shared,0,sizeof(KShared));host->shared->magic=K_MAGIC;host->shared->version=3;
+    memset(host->shared,0,sizeof(KShared));host->shared->magic=K_MAGIC;host->shared->version=4;
     KInit init={.magic=K_MAGIC};
     if(!DuplicateHandle(GetCurrentProcess(),host->mapping,host->process,&init.mapping,0,FALSE,DUPLICATE_SAME_ACCESS)||
        !DuplicateHandle(GetCurrentProcess(),GetCurrentProcess(),host->process,&init.parent,SYNCHRONIZE,FALSE,0)) {

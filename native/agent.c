@@ -18,6 +18,7 @@ static HANDLE mapping,parent_process;
 static KShared *shared;
 static KFeatures features;
 static CtlFn original_ctl;
+static CtlFn original_celt_ctl;
 static EncodeFn original_encode;
 static StartFn original_start;
 static UpstreamEncodeFn original_upstream_encode;
@@ -29,6 +30,8 @@ static volatile LONG active_calls,stopping,running;
 static volatile LONG desired,hold_wanted,pending_sequence,armed_channels;
 static volatile LONG profile_sequence,profile_keep,profile_generation;
 static volatile LONG restoring;
+static volatile LONG celt_adjust;
+static _Thread_local void *encoding_state;
 
 static int readable(const void *p,size_t size) {
     MEMORY_BASIC_INFORMATION info;
@@ -53,6 +56,27 @@ static int __cdecl control_hook(void *state,int request,intptr_t value) {
     InterlockedDecrement(&active_calls);
     return result;
 }
+static int __cdecl celt_control_hook(void *state,int request,intptr_t value) {
+    InterlockedIncrement(&active_calls);
+    int result=original_celt_ctl(state,request,value);
+    /* CELT can also serve unrelated streams. Scope to this thread's selected
+       opus_encode invocation, not to a guessed embedded encoder address. */
+    if(!stopping && request==4002 && !result && encoding_state && encoding_state==current_target() &&
+       readable((char *)state+features.celt_channels_offset,4) && readable((char *)state+features.celt_bitrate_offset,4)) {
+        int channels=0,actual=0;
+        memcpy(&channels,(char *)state+features.celt_channels_offset,4);
+        memcpy(&actual,(char *)state+features.celt_bitrate_offset,4);
+        if((channels==1||channels==2) && celt_adjust && value>260000*channels && value<=desired && value<=320000 &&
+           actual==260000*channels) {
+            actual=(int)value;
+            /* The original control call already validated the request. This
+               field and its 260000*channels clamp are derived from its code. */
+            memcpy((char *)state+features.celt_bitrate_offset,&actual,4);
+        }
+        shared->celt_bitrate=actual;
+    }
+    InterlockedDecrement(&active_calls);return result;
+}
 static void remember_encoder(void *state,ULONGLONG now,int channels,int rate,int bitrate) {
     if(!TryAcquireSRWLockExclusive(&seen_lock))return;
     int slot=-1;
@@ -66,7 +90,10 @@ static int __cdecl encode_hook(void *state,const short *pcm,int frame_size,unsig
     int channels=0,rate=0,bitrate=0;
     int valid=!stopping && metadata(state,&channels,&rate,&bitrate);
     if(valid)remember_encoder(state,GetTickCount64(),channels,rate,bitrate);
+    void *previous=encoding_state;
+    encoding_state=valid&&state==current_target()?state:NULL;
     int result=original_encode(state,pcm,frame_size,data,capacity);
+    encoding_state=previous;
     if(!stopping && valid && state==current_target()) {
         int current=0;
         if(!original_ctl(state,4003,(intptr_t)&current))shared->bitrate=current;
@@ -113,6 +140,7 @@ static void *__cdecl upstream_encode_hook(void *owner,void *result,uint32_t time
                     int effective=desired<300000*channels?desired:300000*channels;
                     shared->error=(ctl_result||read_result||actual!=effective||configured!=upstream)?3:0;
                     if(!shared->error)shared->bitrate=actual;
+                    shared->upstream_bitrate=configured;
                     if(seq && !shared->error)shared->applied=seq;
                 } else shared->error=3;
             }
@@ -126,7 +154,7 @@ static int __cdecl start_hook(void *context,int kit,const char *peer,int channel
     InterlockedIncrement(&active_calls);
     int requested=0;
     if(!stopping && kit==0 && channels>=0 && channels<=2) {
-        InterlockedExchange(&hold_wanted,0);shared->holding=0;
+        InterlockedExchange(&hold_wanted,0);InterlockedExchange(&celt_adjust,0);shared->holding=0;
         InterlockedExchange(&pending_sequence,0);
         InterlockedExchangePointer(&target,NULL);
         AcquireSRWLockExclusive(&seen_lock);memset(seen,0,sizeof(seen));ReleaseSRWLockExclusive(&seen_lock);
@@ -158,6 +186,7 @@ static void schedule_apply(LONG seq,int bps,int keep,int restore) {
     InterlockedExchange(&desired,bps);shared->desired=bps;
     InterlockedExchange(&hold_wanted,keep);shared->holding=keep;
     InterlockedExchange(&restoring,restore);
+    InterlockedExchange(&celt_adjust,!restore);
     InterlockedExchange(&pending_sequence,seq);
 }
 static void select_encoder(void) {
@@ -166,6 +195,7 @@ static void select_encoder(void) {
     for(int i=0;i<8;++i)if(seen[i].state && now-seen[i].seen<1500) {selected=seen[i];count++;}
     ReleaseSRWLockShared(&seen_lock);
     if(count>1) {
+        InterlockedExchange(&celt_adjust,0);
         InterlockedExchange(&hold_wanted,0);InterlockedExchange(&pending_sequence,0);
         InterlockedExchangePointer(&target,NULL);shared->holding=0;shared->status=K_AMBIGUOUS;return;
     }
@@ -187,7 +217,7 @@ static int in_agent_code(uintptr_t ip) {
     IMAGE_NT_HEADERS64 *nt=(void *)((char *)self_module+dos->e_lfanew);
     uintptr_t base=(uintptr_t)self_module;
     if(ip>=base && ip<base+nt->OptionalHeader.SizeOfImage)return 1;
-    const void *functions[]={(const void *)original_ctl,(const void *)original_encode,(const void *)original_start,(const void *)original_upstream_encode};
+    const void *functions[]={(const void *)original_ctl,(const void *)original_encode,(const void *)original_start,(const void *)original_upstream_encode,(const void *)original_celt_ctl};
     for(unsigned i=0;i<sizeof(functions)/sizeof(functions[0]);++i) {
         MEMORY_BASIC_INFORMATION info;
         if(VirtualQuery(functions[i],&info,sizeof(info))) {
@@ -264,14 +294,14 @@ __declspec(dllexport) DWORD WINAPI AgentInitialize(KInit *input) {
     if(!input || input->magic!=K_MAGIC || InterlockedCompareExchange(&running,1,0))return 1;
     mapping=input->mapping;parent_process=input->parent;
     shared=MapViewOfFile(mapping,FILE_MAP_ALL_ACCESS,0,0,sizeof(*shared));
-    if(!shared || shared->magic!=K_MAGIC || shared->version!=3)goto failed;
+    if(!shared || shared->magic!=K_MAGIC || shared->version!=4)goto failed;
     HMODULE engine=find_engine();if(!engine)goto failed;
     IMAGE_DOS_HEADER *dos=(void *)engine;
     IMAGE_NT_HEADERS64 *nt=(void *)((char *)engine+dos->e_lfanew);
     if(!k_find_features((const void *)engine,nt->OptionalHeader.SizeOfImage,&features))goto unsupported;
     if(!k_entry_matches_file(engine,features.control_rva)||!k_entry_matches_file(engine,features.encode_rva)||
        !k_entry_matches_file(engine,features.start_rva) || !k_entry_matches_file(engine,features.upstream_encode_rva) ||
-       !k_entry_matches_file(engine,features.upstream_rate_rva))goto unsupported;
+       !k_entry_matches_file(engine,features.upstream_rate_rva) || !k_entry_matches_file(engine,features.celt_control_rva))goto unsupported;
     upstream_set_rate=(UpstreamRateFn)((char *)engine+features.upstream_rate_rva);
     shared->feature_control=(LONG)features.control_rva;shared->feature_encode=(LONG)features.encode_rva;
     shared->feature_channels_offset=(LONG)features.channels_offset;shared->generation=1;
@@ -280,6 +310,7 @@ __declspec(dllexport) DWORD WINAPI AgentInitialize(KInit *input) {
        MH_CreateHook((char *)engine+features.encode_rva,(void *)encode_hook,(void **)&original_encode)!=MH_OK ||
        MH_CreateHook((char *)engine+features.start_rva,(void *)start_hook,(void **)&original_start)!=MH_OK ||
        MH_CreateHook((char *)engine+features.upstream_encode_rva,(void *)upstream_encode_hook,(void **)&original_upstream_encode)!=MH_OK ||
+       MH_CreateHook((char *)engine+features.celt_control_rva,(void *)celt_control_hook,(void **)&original_celt_ctl)!=MH_OK ||
        MH_EnableHook(MH_ALL_HOOKS)!=MH_OK) {
         MH_DisableHook(MH_ALL_HOOKS);MH_RemoveHook(MH_ALL_HOOKS);MH_Uninitialize();goto failed;
     }

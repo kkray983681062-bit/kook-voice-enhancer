@@ -3,8 +3,8 @@
 201 RCDATA "build/kook-native-agent.dll"
 202 RCDATA "vendor/minhook/LICENSE.txt"
 1 VERSIONINFO
-FILEVERSION 1,1,2,0
-PRODUCTVERSION 1,1,2,0
+FILEVERSION 1,1,3,0
+PRODUCTVERSION 1,1,3,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -14,7 +14,7 @@ BEGIN
   BEGIN
    VALUE "FileDescription", "KOOK Voice Enhancer Native"
    VALUE "ProductName", "KOOK Voice Enhancer"
-   VALUE "FileVersion", "1.1.2"
+   VALUE "FileVersion", "1.1.3"
   END
  END
  BLOCK "VarFileInfo"

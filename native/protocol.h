@@ -13,6 +13,7 @@ typedef struct {
     volatile LONG channels,sample_rate,bitrate,generation,original_bitrate,original_generation;
     volatile LONG error,feature_control,feature_encode,feature_channels_offset;
     volatile LONG upstream_bitrate,output_capacity,last_packet_bytes,packet_samples,original_upstream_bitrate;
+    volatile LONG celt_bitrate;
     volatile LONG64 frames,encoding_errors,payload_bytes,last_frame;
 } KShared;
 typedef struct { DWORD magic;HANDLE mapping,parent; } KInit;
