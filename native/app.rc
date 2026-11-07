@@ -1,0 +1,24 @@
+#include <windows.h>
+1 ICON "../app.ico"
+201 RCDATA "build/kook-native-agent.dll"
+202 RCDATA "vendor/minhook/LICENSE.txt"
+1 VERSIONINFO
+FILEVERSION 1,1,2,0
+PRODUCTVERSION 1,1,2,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "080404B0"
+  BEGIN
+   VALUE "FileDescription", "KOOK Voice Enhancer Native"
+   VALUE "ProductName", "KOOK Voice Enhancer"
+   VALUE "FileVersion", "1.1.2"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x0804, 1200
+ END
+END

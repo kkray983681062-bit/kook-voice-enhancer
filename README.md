@@ -1,0 +1,64 @@
+# KOOK 语音增强
+
+Windows 原生单文件工具，提供单声道 **300 kbps**、双声道 **320 kbps** 目标码率、保持目标和最近 30 秒实际编码输出曲线。
+
+当前版本 **1.1.2**，EXE **318,976 字节，约 0.319 MB**。运行无需 Python 或 Frida。支持 x64 Windows 和 64 位 KOOK，Intel、AMD CPU 均可使用。这是个人项目，与 KOOK 官方无关联。
+
+## 下载
+
+- [下载增强器 EXE](https://github.com/kkray983681062-bit/kook-voice-enhancer/releases/latest/download/KOOK-Voice-Enhancer.exe)
+- [下载连接诊断 BAT](https://github.com/kkray983681062-bit/kook-voice-enhancer/releases/latest/download/KOOK-Diagnostic.bat)
+- [版本说明和 SHA-256 校验文件](https://github.com/kkray983681062-bit/kook-voice-enhancer/releases/latest)
+
+## 使用
+
+1. 打开增强器，启动 KOOK 并进入语音频道。底部支持自动查找、手动选择和启动 KOOK。
+2. 点击“单声道 · 300”或“双声道 · 320”，也可以输入 6–320 kbps 后应用。
+3. 若声道数发生变化，按提示离开并重新进入语音频道一次。
+4. 勾选“应用后保持目标”可保持当前连接的设置。重新连接后需要重新应用；关闭工具停止保持。
+5. “恢复本次原值”恢复本工具首次应用前的上层码率和编码器码率，同时关闭保持，不改变声道数。
+
+输入框是待应用值。“当前配置”显示目标码率；顶部大数字和曲线显示实际编码输出，含最近 30 秒谷值与峰值。VBR 和静音处理会使实际输出变化，目标 300 不等于持续输出 300。曲线不含网络封包开销，也不代表对端接收码率。工具不录音、不保存音频。
+
+## 1.1.2 修复了什么
+
+此前只修改 Opus 目标时，上层 SDK 仍可能按低码率分配输出缓冲区。1080 字节 / 60 ms 对应约 144 kbps，是本次反复出现 143–146 峰值的已验证原因。
+
+现在会在 SDK 分配缓冲区之前同步上下两层码率，保持和恢复也同时处理两层。没有把容量参数扩大到实际分配内存之外，也没有用填充流量修改曲线。桌面版单声道实际输出已超过 260 kbps，用户听感测试正常。
+
+补充调查发现：当前引擎的 CELT 内部仍有每声道 260 kbps 的 VBR 目标限制；它不是瞬时峰值上限，用户后来实测超过 280 kbps。1.1.2 保留这一内部行为，单声道 300 指上层和 Opus 外层的请求目标，不承诺持续 300。具体对照结果见验证记录。
+
+## 连接问题
+
+| 情况 | 处理 |
+| --- | --- |
+| 10001 | KOOK 未运行，启动后会自动重试。 |
+| 10007，但 KOOK 能正常通话 | 检查“用户设置 → 语音设置 → 高级设置 → 音频子系统”。将“标准”改为“先进”，从托盘彻底退出并重开，再进入频道。本次朋友的连接问题已这样解决。 |
+| 错误 5 | 增强器和 KOOK 使用相同权限运行。 |
+| 10005 | 关闭其他增强器；若仍失败，可能是引擎特征或版本发生变化。 |
+| 10008 | 当前是 32 位音频引擎，需使用 64 位 KOOK。 |
+
+诊断 BAT 会把日志写到桌面，不注入、不改内存、不录音、不自动上传日志。日志包含进程、安装位置和模块信息，分享前可自行检查。
+
+## 更新适配
+
+通过稳定导出、PE 函数边界、指令语义及上下层调用关系识别引擎，动态提取函数位置和关键字段偏移。当前对 0.110.0、0.112.0 两份真实引擎文件验证通过；匹配不唯一、语义变化或已有冲突补丁时拒绝控制。未来更换引擎或 ABI 仍可能需要适配。
+
+实现不修改 KOOK 安装文件、服务器档位或账号权限。控制模块只作用于当前语音连接；正常退出撤销控制，父进程异常退出也会触发停止。双声道格式不等于独立左右声场，真实立体声取决于音源。
+
+## 从源码构建
+
+安装 [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw)，在 PowerShell 中运行：
+
+```powershell
+.\native\build.ps1 -Toolchain 'C:\Tools\llvm-mingw\bin'
+.\native\build\component-test.exe
+```
+
+也可设置 `LLVM_MINGW_BIN` 环境变量，或把工具链加入 PATH。产物为 `native/build/KOOK-Voice-Enhancer.exe`。`native/build/feature-probe.exe <音频引擎 DLL> check` 用于文件特征及拒绝条件验证；`native/build/native-live-test.exe 300 12` 用于真实连接测试，运行前关闭增强器 GUI。
+
+验证范围与局限见 [docs/VALIDATION.md](docs/VALIDATION.md)，变更见 [CHANGELOG.md](CHANGELOG.md)。本仓库只包含原生工具源码、测试、诊断脚本和构建说明；下载文件在 Releases。
+
+## 第三方组件
+
+使用 MinHook v1.3.4 和其 HDE 组件，许可文件随源码及 EXE 一起提供，见 [第三方说明](THIRD_PARTY_NOTICES.md)。EXE 标题栏系统菜单中可以查看“开源许可”。

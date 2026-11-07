@@ -1,0 +1,21 @@
+# Publish only the native tool and its documentation.
+*
+!.gitignore
+!.gitattributes
+!README.md
+!CHANGELOG.md
+!THIRD_PARTY_NOTICES.md
+!app.ico
+!native/
+native/*
+!native/*.c
+!native/*.h
+!native/app.rc
+!native/build.ps1
+!native/diagnostic.ps1
+!native/KOOK-Diagnostic.bat
+!native/vendor/
+!native/vendor/**
+!docs/
+docs/*
+!docs/VALIDATION.md
